@@ -1,4 +1,7 @@
 {
-  "ffmpeg_path": "C:\\ffmpeg\\bin\\ffmpeg.exe",
-  "ffprobe_path": "C:\\ffmpeg\\bin\\ffprobe.exe"
+  "ffmpeg_path": "C:/bin/ffmpeg.exe",
+  "ffprobe_path": "C:/bin/ffprobe.exe",
+  "default_output_ext": "mkv",
+  "default_mode": "encode",
+  "overwrite": false
 }
