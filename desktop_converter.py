@@ -334,4 +334,5 @@ class DesktopApp(tk.Tk):
         self.destroy()
 
 if __name__ == "__main__":
-    DesktopApp().mainloop()
+    from desktop_enhanced import EnhancedApp
+    EnhancedApp().mainloop()
