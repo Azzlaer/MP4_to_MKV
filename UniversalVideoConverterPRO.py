@@ -44,16 +44,14 @@ def available_encoders(ffmpeg=None):
     try:
         p = subprocess.run([ffmpeg or binary("ffmpeg"), "-hide_banner", "-encoders"],
                            capture_output=True, text=True, timeout=20)
-        # FFmpeg flags contain V/A/S followed by six capability positions.
-        # Examples: " V....D libx264" and " V..... h264_nvenc".
         if p.returncode:
             return set()
-        found = set()
+        result = set()
         for line in p.stdout.splitlines():
-            match = re.match(r"^\\s*([VAS])([.A-Z]{5})\\s+(\\S+)", line)
+            match = re.match(r"^\s*([VAS])([.A-Z]{5})\s+(\S+)", line)
             if match:
-                found.add(match.group(3))
-        return found
+                result.add(match.group(3))
+        return result
     except (OSError, subprocess.TimeoutExpired):
         return set()
 
@@ -81,14 +79,7 @@ def build_command(ffmpeg, source, output, info, fmt, codec, device, audio, subti
         raise ValueError(f"{codec} no es compatible con el perfil {fmt}")
     encoder = ENCODERS[codec][device]
     if encoder not in encoders:
-        if device == "CPU" and codec == "AV1":
-            encoder = next((item for item in ("libsvtav1", "libaom-av1", "librav1e")
-                            if item in encoders), encoder)
-        elif device == "CPU" and codec == "H.264":
-            encoder = next((item for item in ("libx264", "libopenh264", "h264")
-                            if item in encoders), encoder)
-        if encoder not in encoders:
-            raise ValueError(f"Codificador no disponible en FFmpeg: {encoder}")
+        raise ValueError(f"Codificador no disponible en FFmpeg: {encoder}")
     if not any(s.get("codec_type") == "video" for s in info.get("streams", [])):
         raise ValueError("No hay pista de video")
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-i", str(source)]
@@ -293,11 +284,12 @@ class DesktopApp(tk.Tk):
                 cmd = build_command(self.ffmpeg, job.source, temp, info, fmt, codec,
                                     device, audio, subs, self.encoders)
                 self.events.put((index, "Convirtiendo", 0))
-                error_log = root_dir() / "ffmpeg_last_error.log"
-                with error_log.open("w", encoding="utf-8", errors="replace") as error_handle:
-                    self.process = subprocess.Popen(
-                        cmd, stdout=subprocess.PIPE, stderr=error_handle,
-                        text=True, encoding="utf-8", errors="replace")
+                diagnostic_path = root_dir() / "ffmpeg_last_error.log"
+                diagnostic_file = diagnostic_path.open("w", encoding="utf-8")
+                try:
+                    self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                                    stderr=diagnostic_file, text=True,
+                                                    encoding="utf-8", errors="replace")
                     for line in self.process.stdout:
                         if self.cancel.is_set():
                             self.process.terminate()
@@ -309,6 +301,8 @@ class DesktopApp(tk.Tk):
                                 self.events.put((index, "Convirtiendo", progress))
                             except ValueError:
                                 pass
+                finally:
+                    diagnostic_file.close()
                 returncode = self.process.wait()
                 self.process = None
                 if self.cancel.is_set():
@@ -318,10 +312,10 @@ class DesktopApp(tk.Tk):
                     break
                 if returncode:
                     try:
-                        diagnostics = error_log.read_text(encoding="utf-8", errors="replace")[-1600:]
+                        diagnostics = diagnostic_path.read_text(encoding="utf-8", errors="replace")[-600:]
                     except OSError:
                         diagnostics = ""
-                    raise RuntimeError(f"FFmpeg terminó con código {returncode}: {diagnostics.strip()[-400:]}")
+                    raise RuntimeError(f"FFmpeg código {returncode}: {diagnostics.strip()}")
                 output_info = inspect(temporary, self.ffprobe)
                 if not any(stream.get("codec_type") == "video" for stream in output_info.get("streams", [])):
                     raise RuntimeError("La salida no contiene video")
@@ -338,8 +332,7 @@ class DesktopApp(tk.Tk):
                 finished = datetime.now().astimezone()
                 elapsed = time.monotonic() - start_tick
                 self.events.put(("log", f"FIN archivo={job.source.name} estado={result_state} inicio={started.isoformat(timespec='seconds')} fin={finished.isoformat(timespec='seconds')} duración={elapsed:.1f}s origen={job.source.suffix.lower()} salida={destination.suffix.lower()} modo={profile} destino={destination} detalle={detail}"))
-        self.events.put(("complete", totals, self.shutdown_requested and not self.cancel.is_set()
-                         and totals["Error"] == 0))
+        self.events.put(("complete", totals, self.shutdown_requested and not self.cancel.is_set() and totals["Error"] == 0))
 
     def _poll(self):
         try:
