@@ -1,6 +1,6 @@
 # Registro de conversiones y apagado opcional
 
-La interfaz inicia desde `desktop_converter.py` y carga `desktop_enhanced.py`.
+La interfaz completa se inicia desde un único archivo: `UniversalVideoConverterPRO.py`.
 
 - El registro se muestra en un Listbox dentro de la pestaña Cola. No se abre una ventana modal al terminar un archivo o la cola.
 - `conversion.log` se guarda junto al ejecutable (o junto al script al ejecutar desde Python), en UTF-8.
