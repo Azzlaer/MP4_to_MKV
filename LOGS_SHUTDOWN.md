@@ -13,3 +13,7 @@ La interfaz completa se inicia desde un único archivo: `UniversalVideoConverter
 **Limitación:** El perfil «Rápida» no está disponible en la GUI de la fase 2 (solo perfiles de recodificación). El registro refleja el modo real y no etiqueta conversiones como rápidas si no lo fueron.
 
 **Pendiente:** validar GUI y empaquetado en Windows 11 x64 con FFmpeg real; no se han ejecutado pruebas de integración de este cambio.
+
+## Configuración de FFmpeg
+
+En **Opciones → Herramientas FFmpeg y bibliotecas DLL**, selecciona la carpeta que contiene `ffmpeg.exe`, `ffprobe.exe`, `ffplay.exe` y los archivos `.dll` de la misma distribución. Usa **Validar y guardar** para comprobar los ejecutables y guardar la ruta en `ffmpeg_config.json` junto al programa. El programa usa esas rutas explícitas para codificar e inspeccionar medios; `ffplay.exe` se verifica para preparar su uso futuro, pero la GUI todavía no incorpora un reproductor. No mezcles DLL de versiones distintas de FFmpeg. La validación de presencia no garantiza que todas las funciones GPU estén disponibles.
