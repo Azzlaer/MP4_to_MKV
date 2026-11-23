@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['desktop_converter.py', '.github/workflows/windows-exe.yml']
+    paths: ['UniversalVideoConverterPRO.py', '.github/workflows/windows-exe.yml']
   pull_request:
-    paths: ['desktop_converter.py', '.github/workflows/windows-exe.yml']
+    paths: ['UniversalVideoConverterPRO.py', '.github/workflows/windows-exe.yml']
 jobs:
   windows:
     runs-on: windows-latest
@@ -19,7 +19,7 @@ jobs:
       - name: Install PyInstaller
         run: python -m pip install pyinstaller==6.16.0
       - name: Build EXE
-        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name UniversalVideoConverterPRO desktop_converter.py
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name UniversalVideoConverterPRO UniversalVideoConverterPRO.py
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:

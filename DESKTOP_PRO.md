@@ -4,8 +4,8 @@ Interfaz gráfica con pestañas para Windows 11 x64, basada en Tkinter y FFmpeg.
 
 ## Uso local
 1. Instala Python 3.10+ y una distribución de FFmpeg con **ffmpeg.exe** y **ffprobe.exe**.
-2. Añade ambos ejecutables al PATH o colócalos junto a `desktop_converter.py` (junto al EXE en la versión empaquetada).
-3. Ejecuta `python desktop_converter.py`.
+2. Añade ambos ejecutables al PATH o colócalos junto a `UniversalVideoConverterPRO.py` (junto al EXE en la versión empaquetada).
+3. Ejecuta `python UniversalVideoConverterPRO.py`.
 4. Añade archivos o carpetas a la cola. En **Codificación**, selecciona formato, códec y dispositivo. En **Audio y subtítulos**, selecciona un archivo de la cola y pulsa **Inspeccionar** para enumerar sus pistas. En **Opciones**, elige carpeta de salida.
 5. Inicia la cola y consulta el progreso. **Cancelar** detiene la tarea actual y deja intactos los originales.
 
