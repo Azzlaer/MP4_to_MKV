@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import shutil
@@ -362,10 +363,22 @@ class EnhancedApp(DesktopApp):
         self.shutdown_delay = 30
         super().__init__()
         self.output.set(str(root_dir() / "MKV"))
+        self._load_ffmpeg_settings()
         self._log("Aplicación iniciada; registro persistente: " + str(self.log_file))
 
     def _layout(self):
         super()._layout()
+        self.ffmpeg_directory = tk.StringVar(value="")
+        self.ffmpeg_config_status = tk.StringVar(value="Selecciona la carpeta que contiene los ejecutables y DLL.")
+        section = ttk.LabelFrame(self.settings_tab, text="Herramientas FFmpeg y bibliotecas DLL", padding=10)
+        section.pack(fill="x", pady=(10, 6))
+        ttk.Label(section, text="Directorio de ffmpeg.exe, ffprobe.exe, ffplay.exe y DLL").pack(anchor="w")
+        ttk.Entry(section, textvariable=self.ffmpeg_directory, width=80).pack(fill="x", pady=5)
+        row = ttk.Frame(section)
+        row.pack(anchor="w")
+        ttk.Button(row, text="Examinar carpeta", command=self._browse_ffmpeg).pack(side="left", padx=(0, 6))
+        ttk.Button(row, text="Validar y guardar", command=self._save_ffmpeg_settings).pack(side="left")
+        ttk.Label(section, textvariable=self.ffmpeg_config_status, wraplength=760).pack(anchor="w", pady=6)
         ttk.Label(self.queue_tab, text="Registro de actividad (no bloqueante)").pack(anchor="w")
         self.log_box = tk.Listbox(self.queue_tab, height=8, bg="#162033", fg="#f1f5f9",
                                   font=("Consolas", 9))
@@ -381,6 +394,70 @@ class EnhancedApp(DesktopApp):
         ttk.Label(self.settings_tab, text="Espera antes del apagado (segundos, 10 a 86400)").pack(anchor="w")
         ttk.Entry(self.settings_tab, textvariable=self.shutdown_wait, width=10).pack(anchor="w", pady=4)
         ttk.Button(self.settings_tab, text="Cancelar apagado", command=self._stop_shutdown).pack(anchor="w", pady=8)
+
+    def _ffmpeg_config_path(self):
+        return root_dir() / "ffmpeg_config.json"
+
+    def _browse_ffmpeg(self):
+        folder = filedialog.askdirectory(title="Carpeta de FFmpeg y DLL")
+        if folder:
+            self.ffmpeg_directory.set(folder)
+            self._validate_ffmpeg_folder(save=False)
+
+    def _load_ffmpeg_settings(self):
+        try:
+            config = json.loads(self._ffmpeg_config_path().read_text(encoding="utf-8"))
+            self.ffmpeg_directory.set(config.get("directory", ""))
+        except (OSError, ValueError, TypeError):
+            self.ffmpeg_directory.set(str(root_dir()))
+        self._validate_ffmpeg_folder(save=False)
+
+    def _save_ffmpeg_settings(self):
+        self._validate_ffmpeg_folder(save=True)
+
+    def _validate_ffmpeg_folder(self, save=False):
+        if self.worker and self.worker.is_alive():
+            self.ffmpeg_config_status.set("Espera a que termine la cola para cambiar FFmpeg.")
+            return False
+        directory = Path(self.ffmpeg_directory.get().strip()).expanduser()
+        required = ("ffmpeg.exe", "ffprobe.exe", "ffplay.exe")
+        missing = [name for name in required if not (directory / name).is_file()]
+        dlls = list(directory.glob("*.dll")) if directory.is_dir() else []
+        if missing or not dlls:
+            details = []
+            if missing:
+                details.append("faltan: " + ", ".join(missing))
+            if not dlls:
+                details.append("no se encontraron DLL")
+            self.ffmpeg_config_status.set("Directorio incompleto: " + "; ".join(details))
+            return False
+        ffmpeg = str((directory / "ffmpeg.exe").resolve())
+        ffprobe = str((directory / "ffprobe.exe").resolve())
+        try:
+            checks = []
+            for executable in (ffmpeg, ffprobe):
+                result = subprocess.run([executable, "-version"], capture_output=True,
+                                        text=True, timeout=15, cwd=str(directory))
+                if result.returncode:
+                    raise RuntimeError(Path(executable).name + ": " + (result.stderr or "falló"))
+                checks.append(Path(executable).name)
+        except (OSError, subprocess.TimeoutExpired, RuntimeError) as error:
+            self.ffmpeg_config_status.set("Error verificando ejecutables: " + str(error)[:180])
+            return False
+        self.ffmpeg = ffmpeg
+        self.ffprobe = ffprobe
+        self.ffplay = str((directory / "ffplay.exe").resolve())
+        self.encoders = available_encoders(self.ffmpeg)
+        self.ffmpeg_config_status.set(f"Configuración válida: {len(dlls)} DLL, {len(self.encoders)} codificadores detectados.")
+        if save:
+            try:
+                self._ffmpeg_config_path().write_text(
+                    json.dumps({"directory": str(directory.resolve())}, indent=2), encoding="utf-8")
+                self._log("FFmpeg configurado: " + str(directory.resolve()))
+            except OSError as error:
+                self.ffmpeg_config_status.set("Validado, pero no se pudo guardar: " + str(error))
+                return False
+        return True
 
     def _log(self, text):
         line = f"[{datetime.now().astimezone().isoformat(timespec='seconds')}] {text}"
@@ -399,6 +476,10 @@ class EnhancedApp(DesktopApp):
         self._log("Destino establecido: " + self.output.get())
 
     def _start(self):
+        if not self._validate_ffmpeg_folder(save=False):
+            self._log("ERROR: configura un directorio válido de FFmpeg en Opciones.")
+            self.tabs.select(self.settings_tab)
+            return
         try:
             delay = int(self.shutdown_wait.get())
             if not 10 <= delay <= 86400:
