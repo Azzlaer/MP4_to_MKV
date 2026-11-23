@@ -44,7 +44,14 @@ def available_encoders(ffmpeg=None):
     try:
         p = subprocess.run([ffmpeg or binary("ffmpeg"), "-hide_banner", "-encoders"],
                            capture_output=True, text=True, timeout=20)
-        return set(re.findall(r"^\s*[VAS\.]{6}\s+(\S+)", p.stdout, re.M))
+        if p.returncode:
+            return set()
+        found = set()
+        for line in p.stdout.splitlines():
+            match = re.match(r"^\s*([VAS])([.A-Z]{5})\s+(\S+)", line)
+            if match:
+                found.add(match.group(3))
+        return found
     except (OSError, subprocess.TimeoutExpired):
         return set()
 
@@ -364,10 +371,25 @@ class EnhancedApp(DesktopApp):
         super().__init__()
         self.output.set(str(root_dir() / "MKV"))
         self._load_ffmpeg_settings()
+        self._refresh_encoder_status()
         self._log("Aplicación iniciada; registro persistente: " + str(self.log_file))
 
     def _layout(self):
         super()._layout()
+        self.title("Universal Video Converter PRO | Studio")
+        self.geometry("1180x790")
+        self.minsize(950, 620)
+        style = ttk.Style(self)
+        style.configure("TFrame", background="#172033")
+        style.configure("TLabel", background="#172033", foreground="#e2e8f0", font=("Segoe UI", 10))
+        style.configure("TNotebook.Tab", padding=(22, 12), font=("Segoe UI", 10, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", "#2563eb")], foreground=[("selected", "#ffffff")])
+        style.configure("Treeview", background="#19283e", fieldbackground="#19283e",
+                        foreground="#f8fafc", rowheight=32)
+        self.encoder_status = tk.StringVar(value="Detectando codificadores...")
+        ttk.Label(self.profile_tab, textvariable=self.encoder_status, wraplength=850).pack(anchor="w", pady=10)
+        ttk.Button(self.profile_tab, text="Detectar codificadores",
+                   command=self._refresh_encoder_status).pack(anchor="w")
         self.ffmpeg_directory = tk.StringVar(value="")
         self.ffmpeg_config_status = tk.StringVar(value="Selecciona la carpeta que contiene los ejecutables y DLL.")
         section = ttk.LabelFrame(self.settings_tab, text="Herramientas FFmpeg y bibliotecas DLL", padding=10)
@@ -394,6 +416,18 @@ class EnhancedApp(DesktopApp):
         ttk.Label(self.settings_tab, text="Espera antes del apagado (segundos, 10 a 86400)").pack(anchor="w")
         ttk.Entry(self.settings_tab, textvariable=self.shutdown_wait, width=10).pack(anchor="w", pady=4)
         ttk.Button(self.settings_tab, text="Cancelar apagado", command=self._stop_shutdown).pack(anchor="w", pady=8)
+
+    def _refresh_encoder_status(self):
+        encoder = ENCODERS[self.codec.get()][self.device.get()]
+        if encoder not in self.encoders:
+            for codec in (self.codec.get(), "H.264", "H.265", "AV1"):
+                if codec in COMPAT[self.format.get()] and ENCODERS[codec]["CPU"] in self.encoders:
+                    self.codec.set(codec)
+                    self.device.set("CPU")
+                    break
+        self.encoder_status.set("Detectados: " + (", ".join(sorted(self.encoders))[:600] or "ninguno")
+                                + " | Seleccionado: " + self.codec.get() + " / " + self.device.get())
+        return ENCODERS[self.codec.get()][self.device.get()] in self.encoders
 
     def _ffmpeg_config_path(self):
         return root_dir() / "ffmpeg_config.json"
@@ -448,6 +482,7 @@ class EnhancedApp(DesktopApp):
         self.ffprobe = ffprobe
         self.ffplay = str((directory / "ffplay.exe").resolve())
         self.encoders = available_encoders(self.ffmpeg)
+        self._refresh_encoder_status()
         self.ffmpeg_config_status.set(f"Configuración válida: {len(dlls)} DLL, {len(self.encoders)} codificadores detectados.")
         if save:
             try:
@@ -479,6 +514,10 @@ class EnhancedApp(DesktopApp):
         if not self._validate_ffmpeg_folder(save=False):
             self._log("ERROR: configura un directorio válido de FFmpeg en Opciones.")
             self.tabs.select(self.settings_tab)
+            return
+        if not self._refresh_encoder_status():
+            self._log("ERROR: FFmpeg no ofrece un codificador compatible con el perfil.")
+            self.tabs.select(self.profile_tab)
             return
         try:
             delay = int(self.shutdown_wait.get())
@@ -523,20 +562,25 @@ class EnhancedApp(DesktopApp):
                 cmd = build_command(self.ffmpeg, job.source, temporary, info, fmt, codec,
                                     device, audio, subs, self.encoders)
                 self.events.put((index, "Convirtiendo", 0))
-                self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                                stderr=subprocess.DEVNULL, text=True,
-                                                encoding="utf-8", errors="replace")
-                for line in self.process.stdout:
-                    if self.cancel.is_set():
-                        self.process.terminate()
-                        break
-                    if line.startswith(("out_time_us=", "out_time_ms=")):
-                        try:
-                            seconds = int(line.split("=", 1)[1]) / 1_000_000
-                            progress = min(99.9, seconds / duration * 100) if duration else 0
-                            self.events.put((index, "Convirtiendo", progress))
-                        except ValueError:
-                            pass
+                diagnostic_path = root_dir() / "ffmpeg_last_error.log"
+                diagnostic_file = diagnostic_path.open("w", encoding="utf-8")
+                try:
+                    self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                                    stderr=diagnostic_file, text=True,
+                                                    encoding="utf-8", errors="replace")
+                    for line in self.process.stdout:
+                        if self.cancel.is_set():
+                            self.process.terminate()
+                            break
+                        if line.startswith(("out_time_us=", "out_time_ms=")):
+                            try:
+                                seconds = int(line.split("=", 1)[1]) / 1_000_000
+                                progress = min(99.9, seconds / duration * 100) if duration else 0
+                                self.events.put((index, "Convirtiendo", progress))
+                            except ValueError:
+                                pass
+                finally:
+                    diagnostic_file.close()
                 returncode = self.process.wait()
                 self.process = None
                 if self.cancel.is_set():
@@ -545,7 +589,11 @@ class EnhancedApp(DesktopApp):
                     self.events.put((index, result_state, 0))
                     break
                 if returncode:
-                    raise RuntimeError(f"FFmpeg terminó con código {returncode}")
+                    try:
+                        details = diagnostic_path.read_text(encoding="utf-8", errors="replace")[-500:]
+                    except OSError:
+                        details = ""
+                    raise RuntimeError(f"FFmpeg código {returncode}: {details.strip()}")
                 output_info = inspect(temporary, self.ffprobe)
                 if not any(stream.get("codec_type") == "video" for stream in output_info.get("streams", [])):
                     raise RuntimeError("La salida no contiene video")
@@ -562,7 +610,7 @@ class EnhancedApp(DesktopApp):
                 finished = datetime.now().astimezone()
                 elapsed = time.monotonic() - start_tick
                 self.events.put(("log", f"FIN archivo={job.source.name} estado={result_state} inicio={started.isoformat(timespec='seconds')} fin={finished.isoformat(timespec='seconds')} duración={elapsed:.1f}s origen={job.source.suffix.lower()} salida={destination.suffix.lower()} modo={profile} destino={destination} detalle={detail}"))
-        self.events.put(("complete", totals, self.shutdown_requested and not self.cancel.is_set()))
+        self.events.put(("complete", totals, self.shutdown_requested and not self.cancel.is_set() and totals["Error"] == 0))
 
     def _poll(self):
         try:
