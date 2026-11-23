@@ -1,3 +1,6 @@
+# Nota: arquitectura consolidada
+La interfaz y la lógica de conversión actuales se encuentran en `UniversalVideoConverterPRO.py`. Los comandos CLI descritos abajo corresponden a una versión anterior retirada.
+
 # Conversor universal a MKV (nueva versión CLI)
 
 Esta versión complementa los scripts existentes, sin reemplazarlos.
